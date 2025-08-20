@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "PAL Canvas Patch",
+  "version": "1.0.0",
+  "description": "Randomize canvas fingerprint safely and early.",
+  "permissions": ["scripting", "storage"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+
+  "content_scripts": [{
+    "matches": ["<all_urls>"],
+    "js": ["loader.js"],
+    "run_at": "document_start",
+    "world": "MAIN",
+    "all_frames": false
+  }],
+  "web_accessible_resources": [{
+    "resources": ["diag.js"],
+    "matches": ["<all_urls>"]
+  }],
+
+  "action": {
+    "default_title": "PAL",
+    "default_popup": "popup/popup.html"
+  }
+}
+
+

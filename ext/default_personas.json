@@ -1,0 +1,20 @@
+[
+  {
+    "name": "Curious Explorer",
+    "traits": { "O": 0.8, "C": 0.4, "E": 0.7, "A": 0.5, "N": 0.3 },
+    "noise": { "canvasAmp": 3.0, "webglAmp": 1.0, "audioAmp": 0.0002 },
+    "timing": { "offsetMsRange": [0, 3], "driftPctRange": [0.0, 0.5] }
+  },
+  {
+    "name": "Methodical Researcher",
+    "traits": { "O": 0.6, "C": 0.8, "E": 0.3, "A": 0.6, "N": 0.2 },
+    "noise": { "canvasAmp": 2.0, "webglAmp": 0.7, "audioAmp": 0.00015 },
+    "timing": { "offsetMsRange": [0.5, 2.5], "driftPctRange": [0.0, 0.3] }
+  },
+  {
+    "name": "Casual Browser",
+    "traits": { "O": 0.4, "C": 0.5, "E": 0.5, "A": 0.7, "N": 0.5 },
+    "noise": { "canvasAmp": 1.5, "webglAmp": 0.5, "audioAmp": 0.0001 },
+    "timing": { "offsetMsRange": [0.2, 1.5], "driftPctRange": [0.0, 0.2] }
+  }
+]

@@ -1,0 +1,21 @@
+{
+  "name": "pal",
+  "version": "1.0.0",
+  "description": "PAL: Canvas/WebGL perturbation toolkit",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "collect:on": "node tools/collect.js --userDataDir \\C:\\\\tmp\\\\pal_on\\ --mode on --sites default --personas 0,1,2 --reps 2 --sessions sessions_on.csv",
+    "collect:off": "node tools/collect.js --userDataDir \\C:\\\\tmp\\\\pal_off\\ --mode off --sites default --personas 0,1,2 --reps 2 --sessions sessions_off.csv",
+    "analyze": "python tools/analyze.py sessions_on.csv sessions_off.csv run-*.ndjson"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "type": "module",
+  "dependencies": {
+    "csv-parse": "^5.6.0",
+    "minimist": "^1.2.8",
+    "puppeteer-core": "^21.11.0"
+  }
+}

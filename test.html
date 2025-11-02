@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PAL Demonstration Page — Canvas 2D & WebGL Export Tests</title>
+  <style>
+    :root{--fg:#0f172a;--muted:#64748b;--ok:#16a34a;--bad:#dc2626;--accent:#2563eb;--bg:#f8fafc;--card:#ffffff;}
+    html,body{margin:0;padding:0;background:var(--bg);color:var(--fg);font:16px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,sans-serif}
+    header{padding:20px 24px;border-bottom:1px solid #e5e7eb;background:var(--card);position:sticky;top:0;z-index:2}
+    h1{font-size:22px;margin:0 0 4px}
+    h2{font-size:18px;margin:24px 0 8px}
+    h3{font-size:16px;margin:18px 0 6px}
+    p,li{color:var(--muted)}
+    main{max-width:1080px;margin:16px auto;padding:0 20px 64px}
+    .grid{display:grid;grid-template-columns:repeat(12,1fr);gap:16px}
+    .card{background:var(--card);border:1px solid #e5e7eb;border-radius:14px;padding:16px}
+    .col-6{grid-column:span 6}
+    .col-12{grid-column:span 12}
+    .btn{appearance:none;border:1px solid #cbd5e1;background:#fff;color:#0f172a;border-radius:10px;padding:8px 12px;cursor:pointer}
+    .btn.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+    .btn:disabled{opacity:.6;cursor:not-allowed}
+    .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace}
+    .kv{display:grid;grid-template-columns:220px 1fr;gap:8px 12px}
+    .tag{display:inline-block;border-radius:999px;border:1px solid #e5e7eb;padding:2px 8px;font-size:12px;background:#f1f5f9;color:#334155}
+    .row{display:flex;gap:8px;flex-wrap:wrap}
+    canvas{border:1px dashed #cbd5e1;border-radius:8px;background:#fff}
+    .pill{padding:2px 8px;border-radius:999px;font-size:12px;color:#fff}
+    .good{background:var(--ok)}
+    .bad{background:var(--bad)}
+    .warn{background:#d97706}
+    details{border:1px dashed #e5e7eb;border-radius:12px;padding:8px 12px;background:#fbfdff}
+    summary{cursor:pointer;color:#0f172a}
+    code{background:#f1f5f9;border:1px solid #e5e7eb;border-radius:6px;padding:2px 6px}
+    footer{margin-top:36px;color:#64748b}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>PAL Demonstration — Export-Edge Fingerprint Drift</h1>
+    <p class="mono">This page deterministically renders to Canvas 2D and WebGL, exports bytes, and computes SHA‑256 hashes. Turn your PAL extension OFF/ON and observe hash changes and hook diagnostics.</p>
+  </header>
+  <main>
+
+    <section class="card col-12">
+      <h2>Environment</h2>
+      <div class="kv mono" id="env"></div>
+      <div class="row" style="margin-top:10px">
+        <button class="btn" id="btn-refresh">Re-run tests</button>
+        <button class="btn" id="btn-store">Store as baseline</button>
+        <button class="btn" id="btn-compare">Compare with baseline</button>
+        <button class="btn" id="btn-export">Download JSON log</button>
+        <span class="tag" id="pal-state">PAL diag: unknown</span>
+      </div>
+    </section>
+
+    <div class="grid" style="margin-top:16px">
+      <section class="card col-6">
+        <h2>Canvas 2D Test</h2>
+        <p>Draws a deterministic pattern seeded from <code>location.href</code> and time quantum; exports both <code>getImageData</code> and <code>toDataURL</code> for hashing.</p>
+        <canvas id="c2d" width="420" height="240"></canvas>
+        <div class="kv mono" id="c2d-info" style="margin-top:10px"></div>
+      </section>
+
+      <section class="card col-6">
+        <h2>WebGL Test</h2>
+        <p>Renders a seeded fragment shader, reads back pixels with <code>readPixels</code>, and hashes the resulting byte array.</p>
+        <canvas id="gl" width="420" height="240"></canvas>
+        <div class="kv mono" id="gl-info" style="margin-top:10px"></div>
+      </section>
+
+      <section class="card col-12">
+        <h2>PAL Diagnostics</h2>
+        <p>If the extension exposes a diagnostics object on <code>window</code>, it is shown below. Field names are read‑only; availability depends on your build.</p>
+        <div id="diag" class="mono"></div>
+        <details style="margin-top:10px"><summary>How to use this page in a demo</summary>
+          <ol>
+            <li>Load page with PAL <b>OFF</b>. Click <b>Re-run tests</b>, then <b>Store as baseline</b>.</li>
+            <li>Enable PAL and reload. Click <b>Re-run tests</b>, then <b>Compare with baseline</b>.</li>
+            <li>Expected: Canvas and (when readback engaged) WebGL hashes change. Diagnostics show hook counts.</li>
+          </ol>
+        </details>
+      </section>
+    </div>
+
+    <footer>
+      <p class="mono">No external libraries. All hashing uses <code>crypto.subtle.digest('SHA-256')</code>. Baseline is saved in <code>localStorage['pal-baseline']</code>.</p>
+    </footer>
+  </main>
+
+<script>
+/* ---------- small helpers ---------- */
+const $ = sel => document.querySelector(sel);
+const kv = (el, rows) => { el.innerHTML = rows.map(([k,v]) => `<div>${k}</div><div>${v}</div>`).join(''); };
+async function sha256Hex(buf){
+  const hash = await crypto.subtle.digest('SHA-256', buf);
+  const bytes = new Uint8Array(hash);
+  return [...bytes].map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+function textToUtf8Bytes(t){return new TextEncoder().encode(t).buffer}
+function seedFrom(s){ // tiny deterministic 32-bit LCG from string
+  let h = 2166136261>>>0; for(let i=0;i<s.length;i++){h^=s.charCodeAt(i); h=Math.imul(h,16777619)>>>0;} return ()=> (h = (h*1664525 + 1013904223)>>>0);
+}
+
+/* ---------- environment ---------- */
+function renderEnv(){
+  const rows = [
+    ['User Agent', navigator.userAgent],
+    ['Platform', navigator.platform || ''],
+    ['Timezone', Intl.DateTimeFormat().resolvedOptions().timeZone || ''],
+    ['URL Seed', location.href],
+    ['Now (ISO)', new Date().toISOString()],
+  ];
+  kv($('#env'), rows);
+}
+
+/* ---------- Canvas 2D ---------- */
+async function runCanvas2D(){
+  const can = $('#c2d'); const ctx = can.getContext('2d');
+  ctx.clearRect(0,0,can.width,can.height);
+  // Seeded palette & pattern
+  const s = seedFrom(location.href);
+  function rnd(){return (s()>>>0)/0xffffffff}
+  // background gradient
+  const g = ctx.createLinearGradient(0,0,can.width,can.height);
+  g.addColorStop(0, `hsl(${Math.floor(rnd()*360)},60%,92%)`);
+  g.addColorStop(1, `hsl(${Math.floor(rnd()*360)},60%,88%)`);
+  ctx.fillStyle = g; ctx.fillRect(0,0,can.width,can.height);
+  // noisy rectangles
+  for(let i=0;i<42;i++){
+    ctx.fillStyle = `hsl(${Math.floor(rnd()*360)},70%,${60+Math.floor(rnd()*20)}%)`;
+    const w=30+Math.floor(rnd()*120), h=10+Math.floor(rnd()*60);
+    const x=Math.floor(rnd()*(can.width-w)), y=Math.floor(rnd()*(can.height-h));
+    ctx.fillRect(x,y,w,h);
+  }
+  // text overlay deterministic
+  ctx.fillStyle = '#0f172a'; ctx.font = '16px system-ui, sans-serif';
+  ctx.fillText('PAL demo • Canvas 2D', 12, 24);
+
+  // exports
+  const imgData = ctx.getImageData(0,0,can.width,can.height).data;
+  const hashImageData = await sha256Hex(imgData);
+  const dataURL = can.toDataURL('image/png');
+  const hashDataURL = await sha256Hex(textToUtf8Bytes(dataURL));
+
+  kv($('#c2d-info'), [
+    ['getImageData SHA-256', `<span class="mono">${hashImageData}</span>`],
+    ['toDataURL SHA-256', `<span class="mono">${hashDataURL}</span>`],
+    ['Size', `${can.width}×${can.height}`],
+  ]);
+  return {imgHash:hashImageData, urlHash:hashDataURL};
+}
+
+/* ---------- WebGL ---------- */
+async function runWebGL(){
+  const can = $('#gl');
+  const gl = can.getContext('webgl') || can.getContext('experimental-webgl');
+  if(!gl){
+    kv($('#gl-info'), [['Status','<span class="pill warn">WebGL unavailable</span>']]);
+    return {pixHash:null};
+  }
+  const vs = gl.createShader(gl.VERTEX_SHADER);
+  gl.shaderSource(vs, `attribute vec2 p; void main(){ gl_Position = vec4(p,0.0,1.0);} `);
+  gl.compileShader(vs);
+  const fs = gl.createShader(gl.FRAGMENT_SHADER);
+  const s = seedFrom(location.href); const r = ()=> (s()&255)/255.0;
+  // deterministic color based on URL
+  gl.shaderSource(fs, `precision mediump float; void main(){ gl_FragColor = vec4(${(r()).toFixed(6)}, ${(r()).toFixed(6)}, ${(r()).toFixed(6)}, 1.0); }`);
+  gl.compileShader(fs);
+  const prog = gl.createProgram(); gl.attachShader(prog,vs); gl.attachShader(prog,fs); gl.linkProgram(prog); gl.useProgram(prog);
+  const buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([ -1,-1, 3,-1, -1,3 ]), gl.STATIC_DRAW);
+  const loc = gl.getAttribLocation(prog, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
+  gl.viewport(0,0,can.width,can.height); gl.drawArrays(gl.TRIANGLES,0,3);
+  const pixels = new Uint8Array(can.width*can.height*4); gl.readPixels(0,0,can.width,can.height,gl.RGBA,gl.UNSIGNED_BYTE,pixels);
+  const pixHash = await sha256Hex(pixels);
+  kv($('#gl-info'), [ ['readPixels SHA-256', `<span class="mono">${pixHash}</span>`], ['Size', `${can.width}×${can.height}`] ]);
+  return {pixHash};
+}
+
+/* ---------- Diagnostics (best-effort) ---------- */
+function readDiag(){
+  const candidates = [
+    'PAL_DIAG','__PAL_DIAG','__pal_diag','PAL','__PAL','palDiag','__palDiag'
+  ];
+  for(const k of candidates){ if(window[k]) return {key:k, value: window[k]}; }
+  return null;
+}
+function renderDiag(){
+  const d = readDiag();
+  const el = $('#diag');
+  if(!d){ $('#pal-state').textContent = 'PAL diag: not detected'; $('#pal-state').className = 'tag'; el.textContent = 'No diagnostics object found on window.'; return; }
+  $('#pal-state').textContent = `PAL diag detected on window.${d.key}`; $('#pal-state').className='tag';
+  try{
+    el.textContent = JSON.stringify(d.value, null, 2);
+  }catch(err){ el.textContent = '[unserializable diagnostics object]'; }
+}
+
+/* ---------- Baseline store/compare ---------- */
+function getCurrentSnapshot(){
+  return {
+    env: { ua:navigator.userAgent, href:location.href, ts:new Date().toISOString() },
+    c2d: window.__PAL_LAST_C2D || null,
+    gl: window.__PAL_LAST_GL || null,
+    diag: readDiag() ? readDiag().value : null,
+  };
+}
+function storeBaseline(){ localStorage.setItem('pal-baseline', JSON.stringify(getCurrentSnapshot())); alert('Stored current hashes as baseline. Reload with PAL toggled to compare.'); }
+function compareBaseline(){
+  const b = localStorage.getItem('pal-baseline'); if(!b){ alert('No baseline stored yet.'); return; }
+  const base = JSON.parse(b); const now = getCurrentSnapshot();
+  function cmp(a,b){ return a && b ? (a===b? 'same':'different') : 'n/a'; }
+  const c2d1 = base?.c2d?.imgHash, c2d2 = now?.c2d?.imgHash;
+  const url1 = base?.c2d?.urlHash, url2 = now?.c2d?.urlHash;
+  const gl1 = base?.gl?.pixHash, gl2 = now?.gl?.pixHash;
+  const msg = [
+    `Canvas getImageData: ${cmp(c2d1,c2d2)}`,
+    `Canvas toDataURL: ${cmp(url1,url2)}`,
+    `WebGL readPixels: ${cmp(gl1,gl2)}`
+  ].join('\n');
+  alert(msg);
+}
+
+/* ---------- main runner ---------- */
+async function runAll(){
+  renderEnv(); renderDiag();
+  const c2d = await runCanvas2D(); window.__PAL_LAST_C2D = c2d;
+  const gl = await runWebGL(); window.__PAL_LAST_GL = gl;
+}
+
+$('#btn-refresh').onclick = runAll;
+$('#btn-store').onclick = storeBaseline;
+$('#btn-compare').onclick = compareBaseline;
+$('#btn-export').onclick = ()=>{
+  const blob = new Blob([JSON.stringify(getCurrentSnapshot(),null,2)], {type:'application/json'});
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'pal-demo-log.json'; a.click(); URL.revokeObjectURL(a.href);
+};
+
+runAll();
+</script>
+</body>
+</html>

@@ -1,38 +1,62 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <title>PAL Prototype</title>
+  <meta charset="utf-8" />
+  <title>PAL — Personas</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
-    body { font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; width:300px; padding:14px; background:#f5f6f7; }
-    h1 { font-size:16px; margin:0 0 12px; text-align:center; }
-    .row { display:flex; align-items:center; justify-content:space-between; margin:10px 0; }
-    .switch { position:relative; display:inline-block; width:52px; height:28px; }
-    .switch input { opacity:0; width:0; height:0; }
-    .slider { position:absolute; inset:0; cursor:pointer; background:#cbd5e1; border-radius:28px; transition:.25s; }
-    .slider:before { content:""; position:absolute; height:20px; width:20px; left:4px; bottom:4px; background:#fff; border-radius:50%; transition:.25s; }
-    input:checked + .slider { background:#2563eb; }
-    input:checked + .slider:before { transform: translateX(24px); }
-    .card { background:#fff; border:1px solid #e5e7eb; border-radius:8px; padding:10px; font-size:14px; }
-    button { border:1px solid #d1d5db; background:#fff; padding:6px 10px; border-radius:6px; cursor:pointer; }
-    button:hover { background:#f9fafb; }
+    :root{--fg:#0f172a;--muted:#64748b;--bg:#f6f7fb;--card:#fff;--line:#e5e7eb;--accent:#2563eb}
+    html,body{margin:0;padding:0;background:var(--bg);color:var(--fg);font:14px/1.35 system-ui,-apple-system,"Segoe UI",Roboto,Inter,Arial,sans-serif}
+    .wrap{width:320px;padding:14px}
+    h1{font-size:15px;margin:0 0 10px;text-align:center}
+    .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px;margin:10px 0}
+    .row{display:flex;align-items:center;justify-content:space-between;gap:10px}
+    .muted{color:var(--muted)}
+    .switch{position:relative;width:48px;height:26px}
+    .switch input{opacity:0;width:0;height:0}
+    .slider{position:absolute;inset:0;background:#cbd5e1;border-radius:26px;cursor:pointer;transition:.2s}
+    .slider:before{content:"";position:absolute;width:20px;height:20px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.2s}
+    input:checked + .slider{background:var(--accent)}
+    input:checked + .slider:before{transform:translateX(22px)}
+    button{border:1px solid var(--line);background:#fff;border-radius:8px;padding:6px 10px;cursor:pointer}
+    button:hover{background:#f9fafb}
+    .kv{display:grid;grid-template-columns:120px 1fr;gap:6px 8px}
+    .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+    .ok{color:#16a34a}.off{color:#dc2626}
   </style>
 </head>
 <body>
-  <h1>PAL Prototype</h1>
+  <div class="wrap">
+    <h1>PAL — Persona Control</h1>
 
-  <div class="row">
-    <span>Protection</span>
-    <label class="switch">
-      <input type="checkbox" id="protectionToggle" />
-      <span class="slider"></span>
-    </label>
-  </div>
+    <div class="card">
+      <div class="row">
+        <div>
+          <div><strong>Status:</strong> <span id="status" class="off">OFF</span></div>
+          <div class="muted">Toggle protection</div>
+        </div>
+        <label class="switch" title="Enable/Disable">
+          <input type="checkbox" id="toggle"/>
+          <span class="slider"></span>
+        </label>
+      </div>
+    </div>
 
-  <div class="card">
-    <p>Active Persona: <strong id="personaName">Loading…</strong></p>
-    <div class="row">
-      <button id="rotateNow">Rotate Now</button>
+    <div class="card">
+      <div class="kv">
+        <div class="muted">Persona index</div><div id="personaIdx" class="mono">–</div>
+        <div class="muted">Seed</div><div id="seed" class="mono">–</div>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <button id="rotate">Rotate persona</button>
+        <button id="refresh">Refresh</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="muted" style="font-size:12px">
+        Tip: After rotating, reload your test page and compare hashes.
+      </div>
     </div>
   </div>
 

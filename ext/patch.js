@@ -14,6 +14,9 @@
     lastSeed: 0,
     notes: []
   });
+
+try { window.PAL_DIAG = TOP.__pal_diag; } catch {}
+
   function note(t, extra) {
     try {
       DIAG.notes.push({ t, ts: Date.now(), extra });
@@ -23,6 +26,79 @@
     } catch {}
   }
   function bump(k) { try { DIAG.calls[k] = (DIAG.calls[k] || 0) + 1; } catch {} }
+
+
+
+
+
+
+// ===== PAL WebGL hook via getContext (robust) =====
+(function () {
+  function lcg(seed){ let s=seed>>>0; return ()=> (s=(s*1664525+1013904223)>>>0)&255; }
+  const SEED = (window.__PAL_BOOT__ && (window.__PAL_BOOT__.seed>>>0)) || (Date.now()>>>0);
+  const rnd  = lcg(SEED);
+
+  // tiny, type-preserving perturbation on the destination buffer
+  function perturb(dst){
+    if (!dst || typeof dst.length !== "number" || !dst.length) return 0;
+    const n = Math.min(dst.length, 4096);
+    for (let i = 0; i < n; i += 16) dst[i] ^= rnd();   // flip one byte every 16
+    return Math.ceil(n/16);
+  }
+
+  function wrapReadPixels(gl, glVer) {
+    const tag = glVer || (gl instanceof WebGL2RenderingContext ? "GL2" : "GL1");
+    if (gl.__pal_wrapped_readPixels) return;
+    const orig = gl.readPixels;
+    if (typeof orig !== "function") return;
+
+    gl.readPixels = function (...a) {
+      // WebGL spec: readPixels(x,y,w,h,format,type, dst)
+      const ret = orig.apply(this, a);
+      try {
+        const dst = a[6];                   // index 6 is the destination TypedArray
+        const edited = perturb(dst);
+        if (edited) {
+          try { window.PAL_DIAG = Object.assign(window.PAL_DIAG||{}, { gl_hook: true, gl_edits: (window.PAL_DIAG?.gl_edits|0)+edited }); } catch {}
+        }
+      } catch {}
+      return ret;
+    };
+    Object.defineProperty(gl, "__pal_wrapped_readPixels", { value: true });
+  }
+
+  // wrap context creation so we always hook the ACTUAL context used by the page
+  function wrapGetContext(HostProto, name) {
+    if (!HostProto || HostProto.__pal_wrapped_getContext) return;
+    const _getContext = HostProto.getContext;
+    HostProto.getContext = function (type, attrs) {
+      const ctx = _getContext.call(this, type, attrs);
+      try {
+        if (type === "webgl" || type === "experimental-webgl") wrapReadPixels(ctx, "GL1");
+        if (type === "webgl2") wrapReadPixels(ctx, "GL2");
+      } catch {}
+      return ctx;
+    };
+    Object.defineProperty(HostProto, "__pal_wrapped_getContext", { value: true });
+  }
+
+  try { wrapGetContext(HTMLCanvasElement.prototype, "HTMLCanvasElement"); } catch {}
+  try { wrapGetContext(OffscreenCanvas && OffscreenCanvas.prototype, "OffscreenCanvas"); } catch {}
+
+  // also attempt a prototype-level wrap for already-created contexts
+  try { if (window.WebGLRenderingContext) wrapReadPixels(WebGLRenderingContext.prototype, "GL1-proto"); } catch {}
+  try { if (window.WebGL2RenderingContext) wrapReadPixels(WebGL2RenderingContext.prototype, "GL2-proto"); } catch {}
+
+  // mark diagnostics
+  try { window.PAL_DIAG = Object.assign(window.PAL_DIAG||{}, { gl_hook: true, seed: SEED }); } catch {}
+})();
+
+
+
+
+
+
+
 
   // --------- deterministic pixel noise (no readback) ----------
   function drawDelta2D(canvas, seed) {
@@ -51,10 +127,16 @@
   }
 
   function noiseGL(dst) {
-    try {
-      if (dst && typeof dst.length === "number" && dst.length) { dst[0] ^= 1; note("noisegl.ok", { len: dst.length }); }
-    } catch (e) { note("noisegl.fail", String(e)); }
-  }
+  try {
+    if (dst && typeof dst.length === "number" && dst.length) {
+      // flip one byte every 16 up to first 4KB
+      const n = Math.min(dst.length, 4096);
+      for (let i = 0; i < n; i += 16) dst[i] ^= 1;
+      note("noisegl.ok", { len: dst.length, edited: Math.ceil(n/16) });
+    }
+  } catch (e) { note("noisegl.fail", String(e)); }
+}
+
 
   // --------- patch a single realm (window) ----------
   function installInto(win, tag) {
@@ -132,7 +214,7 @@
           const orig = GL1.readPixels;
           GL1.readPixels = function (...pa) {
             const r = Reflect.apply(orig, this, pa);
-            try { noiseGL(pa[5]); bump("readPixels"); note(tag + ".call.readPixels"); } catch (e) { note(tag + ".call.readPixels.fail", String(e)); }
+            try { noiseGL(pa[6]); bump("readPixels"); note(tag + ".call.readPixels"); } catch (e) { note(tag + ".call.readPixels.fail", String(e)); }
             return r;
           };
           GL1.readPixels.__pal_wrapped = true;
@@ -144,7 +226,7 @@
           const orig = GL2.readPixels;
           GL2.readPixels = function (...pa) {
             const r = Reflect.apply(orig, this, pa);
-            try { noiseGL(pa[5]); bump("readPixels"); note(tag + ".call.readPixels2"); } catch (e) { note(tag + ".call.readPixels2.fail", String(e)); }
+            try { noiseGL(pa[6]); bump("readPixels"); note(tag + ".call.readPixels2"); } catch (e) { note(tag + ".call.readPixels2.fail", String(e)); }
             return r;
           };
           GL2.readPixels.__pal_wrapped = true;
@@ -272,8 +354,15 @@
   }
 
   // --------- kick ----------
-  try { DIAG.lastSeed = (Date.now() ^ (Math.random() * 1e9 | 0)) >>> 0; } catch { DIAG.lastSeed = (Date.now() | 0) >>> 0; }
-  note("install", { url: location.href, seed: DIAG.lastSeed });
+try {
+  const BOOT = window.__PAL_BOOT__ || {};
+  DIAG.lastSeed = (BOOT.seed >>> 0) || ((Date.now() ^ (Math.random() * 1e9 | 0)) >>> 0);
+  DIAG.personaIndex = BOOT.personaIndex | 0;
+} catch {
+  DIAG.lastSeed = (Date.now() | 0) >>> 0;
+}
+note("install", { url: location.href, seed: DIAG.lastSeed, personaIndex: DIAG.personaIndex });
+
 
   try { installInto(window, "top"); } catch (e) { note("top.install.fail", String(e)); }
   try { sweepCanvases(document); } catch (e) { note("sweep.fail", String(e)); }

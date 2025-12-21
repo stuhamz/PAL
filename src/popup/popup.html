@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PAL</title>
+    <link rel="stylesheet" href="popup.css">
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <h1>PAL</h1>
+            <div class="status-indicator active"></div>
+        </header>
+
+        <div id="loading" class="card">
+            <h2>Loading...</h2>
+            <div class="loader"></div>
+        </div>
+
+        <div id="dashboard" class="card hidden">
+            <div class="info-row">
+                <span class="label">Identity ID</span>
+                <span class="value mono" id="persona-id">---</span>
+            </div>
+            <hr>
+            <div class="info-row">
+                <span class="label">Profile</span>
+                <span class="value" id="persona-name">---</span>
+            </div>
+            <div class="info-row">
+                <span class="label">OS</span>
+                <span class="value" id="persona-os">---</span>
+            </div>
+            <div class="info-row">
+                <span class="label">Browser</span>
+                <span class="value" id="persona-browser">---</span>
+            </div>
+            <div class="info-row">
+                <span class="label">Resolution</span>
+                <span class="value" id="persona-res">---</span>
+            </div>
+        </div>
+
+        <button id="shift-btn">Shift Identity</button>
+        <p class="hint">Shift applies to THIS SITE only.</p>
+    </div>
+    <script src="popup.js"></script>
+</body>
+
+</html>

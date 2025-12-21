@@ -1,0 +1,14 @@
+node_modules/
+data/runs/
+logs/
+*.log
+*.tmp
+dist/
+.DS_Store
+crawl_log.txt
+crawl_log_100.txt
+# Allow sample data
+!data/sample_run.jsonl
+# Allow site lists
+!data/sites.json
+!research/sites_structured.json

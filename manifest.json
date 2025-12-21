@@ -1,0 +1,60 @@
+{
+    "manifest_version": 3,
+    "name": "PAL - Psychological Anonymity Linkability",
+    "version": "1.0.0",
+    "description": "Defeats tracking by creating plausible, coherent, drifting synthetic personas.",
+    "permissions": [
+        "storage",
+        "scripting",
+        "declarativeNetRequest"
+    ],
+    "host_permissions": [
+        "<all_urls>"
+    ],
+    "background": {
+        "service_worker": "src/background/service_worker.js",
+        "type": "module"
+    },
+    "content_scripts": [
+        {
+            "matches": [
+                "<all_urls>"
+            ],
+            "js": [
+                "src/content/prehook.js"
+            ],
+            "run_at": "document_start",
+            "all_frames": true,
+            "match_origin_as_fallback": true,
+            "match_about_blank": true,
+            "world": "MAIN"
+        },
+        {
+            "matches": [
+                "<all_urls>"
+            ],
+            "js": [
+                "src/content/loader.js"
+            ],
+            "run_at": "document_start",
+            "all_frames": true,
+            "match_origin_as_fallback": true,
+            "match_about_blank": true
+        }
+    ],
+    "web_accessible_resources": [
+        {
+            "resources": [
+                "src/content/inject.js",
+                "/src/content/inject.js"
+            ],
+            "matches": [
+                "<all_urls>"
+            ]
+        }
+    ],
+    "action": {
+        "default_popup": "src/popup/popup.html",
+        "default_title": "PAL Identity Manager"
+    }
+}

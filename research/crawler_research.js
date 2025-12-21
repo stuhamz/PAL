@@ -9,25 +9,51 @@ const EXTENSION_PATH = path.resolve(__dirname, '../');
 const RESEARCH_PROBE_PATH = path.join(__dirname, 'research_probe.js');
 const DATA_DIR = path.resolve(__dirname, '../data/runs');
 
-// --- Experimental Design ---
-const TARGET_COUNT = 3; // Demo Mode: 3 Sites (Change to 100 for full run)
+// --- CONFIGURATION ---
+const TARGET_COUNT = 100; // Full Research Run
 const EPOCHS = 3;
 const MODES = ['vanilla', 'compat', 'privacy'];
-
-// --- Run Identity ---
 const RUN_ID = crypto.randomUUID();
+
 const RUN_DIR = path.join(DATA_DIR, RUN_ID);
 if (!fs.existsSync(RUN_DIR)) fs.mkdirSync(RUN_DIR, { recursive: true });
-
 const EVENTS_FILE = path.join(RUN_DIR, `run_${RUN_ID}.jsonl`);
 
-// --- Helpers ---
+// --- Persistent Write Stream (Fixes EBUSY) ---
+const stream = fs.createWriteStream(EVENTS_FILE, { flags: 'a' });
+
 function appendJSONL(data) {
-    fs.appendFileSync(EVENTS_FILE, JSON.stringify(data) + '\n');
+    if (!stream.write(JSON.stringify(data) + '\n')) {
+        // Handle backpressure if needed, but for logs it's usually fine
+    }
 }
 
 (async () => {
-    console.log(`Starting Research Crawl ${RUN_ID}`);
+    console.log(`Resuming Research Crawl ${RUN_ID}`);
+
+    // 0. Build Resume Set
+    // 0. Build Resume Set
+    const completed = new Set();
+    const readline = require('readline'); // ensure import
+    if (fs.existsSync(EVENTS_FILE)) {
+        console.log("Analyzing existing data to resume...");
+        const fileStream = fs.createReadStream(EVENTS_FILE);
+        const rl = readline.createInterface({
+            input: fileStream,
+            crlfDelay: Infinity
+        });
+
+        for await (const line of rl) {
+            if (!line.trim()) continue;
+            try {
+                const r = JSON.parse(line);
+                if (r.mode && r.epoch && r.url && (r.event_type !== 'error' && r.type !== 'error')) {
+                    completed.add(`${r.mode}|${r.epoch}|${r.url}`);
+                }
+            } catch (e) { }
+        }
+    }
+    console.log(`Found ${completed.size} completed visits. Skipping them.`);
 
     // 1. Load Sites
     const sitesRaw = JSON.parse(fs.readFileSync(SITES_FILE, 'utf8'));
@@ -36,12 +62,6 @@ function appendJSONL(data) {
     // 2. Iterate Modes
     for (const mode of MODES) {
         console.log(`\n=== MODE: ${mode.toUpperCase()} ===`);
-
-        // Launch Browser for this Mode (Fresh Profile per Mode/Epoch usually, 
-        // but Protocol says Epoch 2 = Return Session. 
-        // We will simulate return via Persona persistence if using extension, 
-        // or UserDataDir persistence. 
-        // For simplicity & robustness: Fresh Browser per Epoch, injecting same Persona ID for 'Return' logic.
 
         for (let epoch = 1; epoch <= EPOCHS; epoch++) {
             console.log(`  -- Epoch ${epoch} --`);
@@ -56,44 +76,66 @@ function appendJSONL(data) {
                 launchArgs.push(`--load-extension=${EXTENSION_PATH}`);
             }
 
-            const browser = await puppeteer.launch({
-                headless: false, // Visual verify
-                args: launchArgs
-            });
+            let browser;
+            try {
+                browser = await puppeteer.launch({
+                    headless: false,
+                    args: launchArgs
+                });
+            } catch (e) { console.error("Browser launch failed", e); continue; }
 
             // 3. Iterate Sites
             for (const url of urls) {
-                const visitId = crypto.randomUUID();
-                const contextId = crypto.randomUUID(); // Persona ID for this site/mode sequence
-                // NOTE: If Epoch 2 is "Return", we should reuse contextId from Epoch 1?
-                // User Requirement: "Epoch 2: Return session... Epoch 3: Long-term return"
-                // Implies Identity Persistence.
-                // We will reuse a stable persona_id for (Site + Mode).
-                // But for "Unlinkability" (Privacy Mode), PAL *should* rotate anyway if configured?
-                // Actually, Privacy mode rotates persona ON EVERY VISIT or SESSION.
-                // Compat mode keeps it.
-                // We inject a STABLE persona_id into the config, and let PAL decide to rotate or not based on Logic.
-                // Wait, prehook takes config.persona_id. If we pass stable, PAL uses stable.
-                // To test Unlinkability, we verify that even if we pass Stable Persona (simulating same user), 
-                // Privacy Mode's NOISE makes it unlinkable. 
-                // OR: Privacy Mode logic *inside* PAL rotates the visual persona.
-
-                // Let's stick to the protocol:
-                // We pass `epoch_id`.
-                // We pass a persistent `persona_id` (The "Real User").
+                // CHECK IF DONE
+                if (completed.has(`${mode}|${epoch}|${url}`)) {
+                    // console.log(`     Skipping ${url} (Already done)`); 
+                    continue;
+                }
 
                 const persistentPersona = crypto.createHash('sha256').update(url + mode).digest('hex').substring(0, 12);
+                let page;
 
                 try {
-                    const page = await browser.newPage();
+                    page = await browser.newPage();
 
-                    // Inject Config (Compat/Privacy only)
+                    const visitedFrames = new Set();
+                    const seenErrors = new Set(); // Gap C: Deduplication
+                    let errorCount = 0;
+                    const PROBE_SRC = fs.readFileSync(RESEARCH_PROBE_PATH, 'utf8');
+
+                    // --- Robust Error Logger ---
+                    const logError = (type, err, source) => {
+                        if (errorCount >= 50) return; // Cap at 50 errors per site visit
+                        const sig = `${type}|${err?.message || String(err)}`;
+                        if (seenErrors.has(sig)) return; // Dedup
+                        seenErrors.add(sig);
+                        errorCount++;
+
+                        appendJSONL({
+                            event_type: 'error',
+                            message: err?.message || String(err),
+                            mode, epoch, url,
+                            source: source,
+                            ts: new Date().toISOString(),
+                            run_id: RUN_ID
+                        });
+                    };
+
+                    page.on('pageerror', err => logError('error', err, 'page_error'));
+                    page.on('error', err => logError('error', err, 'crash'));
+                    page.on('requestfailed', req => {
+                        if (req.failure() && req.failure().errorText === 'net::ERR_BLOCKED_BY_CLIENT') {
+                            logError('csp_violation', { message: req.url() }, 'csp'); // Reuse logError for capping
+                        }
+                    });
+
+                    // Inject Config
                     if (mode !== 'vanilla') {
                         const config = {
                             run_id: RUN_ID,
                             mode: mode,
                             epoch_id: epoch,
-                            persona_id: persistentPersona, // Same user returning
+                            persona_id: persistentPersona,
                             top_level_site: new URL(url).hostname
                         };
                         await page.evaluateOnNewDocument((c) => {
@@ -105,38 +147,59 @@ function appendJSONL(data) {
                     page.on('console', msg => {
                         const txt = msg.text();
                         if (txt.startsWith('__PAL_TELEM__:')) {
-                            const events = JSON.parse(txt.replace('__PAL_TELEM__:', ''));
-                            events.forEach(e => {
-                                // Enrich
-                                e.mode = mode;
-                                e.epoch = epoch;
-                                e.url = url;
-                                appendJSONL(e);
-                            });
+                            try {
+                                const events = JSON.parse(txt.replace('__PAL_TELEM__:', ''));
+                                events.forEach(e => {
+                                    e.mode = mode;
+                                    e.epoch = epoch;
+                                    e.url = url;
+                                    e.run_id = RUN_ID;
+                                    if (!e.ts) e.ts = new Date().toISOString();
+                                    appendJSONL(e);
+                                });
+                            } catch (err) {
+                                logError('error', { message: `Telemetry parse: ${err.message}` }, 'crawler_json_parse');
+                            }
                         }
                     });
 
-                    // Navigate
                     console.log(`     Visiting ${url}...`);
-                    await page.goto(url, { waitUntil: 'networkidle2' });
+                    await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
 
-                    // Inject Probe
-                    const probeSrc = fs.readFileSync(RESEARCH_PROBE_PATH, 'utf8');
-                    await page.evaluate(probeSrc);
+                    // Gap A: Iframe Injection
+                    await new Promise(r => setTimeout(r, 2000));
 
-                    await new Promise(r => setTimeout(r, 2000)); // Wait for iframe/worker
+                    for (const frame of page.frames()) {
+                        try {
+                            if (!frame.isDetached()) {
+                                await frame.evaluate(PROBE_SRC).catch(() => { });
+                            }
+                        } catch (e) { }
+                    }
 
-                    await page.close();
+                    // Wait for results
+                    await new Promise(r => setTimeout(r, 2000));
+
+                    await new Promise(r => setTimeout(r, 2000));
 
                 } catch (e) {
                     console.error(`     Error: ${e.message}`);
-                    appendJSONL({ type: 'error', msg: e.message, mode, epoch, url });
+                    appendJSONL({
+                        event_type: 'error',
+                        message: e.message,
+                        mode, epoch, url,
+                        source: 'nav_failure',
+                        ts: new Date().toISOString(),
+                        run_id: RUN_ID
+                    });
+                } finally {
+                    if (page && !page.isClosed()) await page.close().catch(() => { });
                 }
             }
-
-            await browser.close();
+            if (browser) await browser.close();
         }
     }
 
-    console.log("Research Crawl Complete.");
+    console.log("Resume Complete.");
+    stream.end();
 })();

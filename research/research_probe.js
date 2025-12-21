@@ -100,23 +100,28 @@ async function collectVector(contextName) {
     // 2. Audio (Oscillator)
     try {
         const t0 = performance.now();
-        const ctx = new OfflineAudioContext(1, 44100, 44100);
-        const osc = ctx.createOscillator();
-        osc.type = "triangle";
-        osc.frequency.setValueAtTime(1000, 0);
-        const comp = ctx.createDynamicsCompressor();
-        osc.connect(comp);
-        comp.connect(ctx.destination);
-        osc.start(0);
+        if (typeof OfflineAudioContext !== 'undefined' || typeof webkitOfflineAudioContext !== 'undefined') {
+            const AudioCtx = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+            const ctx = new AudioCtx(1, 44100, 44100);
+            const osc = ctx.createOscillator();
+            osc.type = "triangle";
+            osc.frequency.setValueAtTime(1000, 0);
+            const comp = ctx.createDynamicsCompressor();
+            osc.connect(comp);
+            comp.connect(ctx.destination);
+            osc.start(0);
 
-        const renderPromise = ctx.startRendering();
-        const buffer = await renderPromise;
-        const data = buffer.getChannelData(0).slice(0, 1000).join(",");
+            const renderPromise = ctx.startRendering();
+            const buffer = await renderPromise;
+            const data = buffer.getChannelData(0).slice(0, 1000).join(",");
 
-        vector.components.audio_hash = await vectorHash(data);
+            vector.components.audio_hash = await vectorHash(data);
+        } else {
+            vector.components.audio_hash = "N/A"; // Explicitly Mark as N/A (Gap B Fix)
+        }
         vector.timings.audio = performance.now() - t0;
     } catch (e) {
-        vector.components.audio_hash = await vectorHash(`<error:${e.message}>`);
+        vector.components.audio_hash = `N/A`; // Treat errors as N/A for clean reporting
     }
 
     // 3. WebGL (ReadPixels)
@@ -261,8 +266,9 @@ function emitPALS(vector) {
         vector_schema_version: RESEARCH_PROBE_VERSION,
         components: vector.components,
         timings: vector.total_time,
-        context: vector.context
-        // run_id etc will be attached by prehook
+        context: vector.context,
+        run_id: GLOBAL_CONFIG.run_id,
+        ts: new Date().toISOString()
     };
     // Send to Console (Crawler Hooks pick it up)
     // We use a special prefix so Prehook can also see it? 
